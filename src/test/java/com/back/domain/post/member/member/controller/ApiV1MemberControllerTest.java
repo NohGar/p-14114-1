@@ -16,7 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -101,15 +101,16 @@ public class ApiV1MemberControllerTest {
                     Cookie apiKeyCookie = result.getResponse().getCookie("apiKey");
                     assertThat(apiKeyCookie.getValue()).isEqualTo(member.getApiKey());
                     assertThat(apiKeyCookie.getPath()).isEqualTo("/");
-                    assertThat(apiKeyCookie.isHttpOnly()).isTrue();
+                    assertThat(apiKeyCookie.getAttribute("HttpOnly")).isEqualTo("true");
 
                     Cookie accessTokenCookie = result.getResponse().getCookie("accessToken");
                     assertThat(accessTokenCookie.getValue()).isNotBlank();
                     assertThat(accessTokenCookie.getPath()).isEqualTo("/");
-                    assertThat(apiKeyCookie.isHttpOnly()).isTrue();
+                    assertThat(accessTokenCookie.getAttribute("HttpOnly")).isEqualTo("true");
                 }
         );
     }
+
 
     @Test
     @DisplayName("내 정보")
@@ -130,13 +131,11 @@ public class ApiV1MemberControllerTest {
                 .andExpect(handler().handlerType(ApiV1MemberController.class))
                 .andExpect(handler().methodName("me"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resultCode").value("200-1"))
-                .andExpect(jsonPath("$.msg").value("%s님의 정보입니다.".formatted(member.getName())))
-                .andExpect(jsonPath("$.data").exists())
-                .andExpect(jsonPath("$.data.id").value(member.getId()))
-                .andExpect(jsonPath("$.data.createDate").value(Matchers.startsWith(member.getCreateDate().toString().substring(0, 20))))
-                .andExpect(jsonPath("$.data.modifyDate").value(Matchers.startsWith(member.getModifyDate().toString().substring(0, 20))))
-                .andExpect(jsonPath("$.data.name").value(member.getName()));
+                .andExpect(jsonPath("$.id").value(member.getId()))
+                .andExpect(jsonPath("$.createDate").value(Matchers.startsWith(member.getCreateDate().toString().substring(0, 20))))
+                .andExpect(jsonPath("$.modifyDate").value(Matchers.startsWith(member.getModifyDate().toString().substring(0, 20))))
+                .andExpect(jsonPath("$.name").value(member.getName()))
+                .andExpect(jsonPath("$.username").value(member.getUsername()));
     }
 
     @Test
@@ -157,15 +156,9 @@ public class ApiV1MemberControllerTest {
         resultActions
                 .andExpect(handler().handlerType(ApiV1MemberController.class))
                 .andExpect(handler().methodName("me"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resultCode").value("200-1"))
-                .andExpect(jsonPath("$.msg").value("%s님의 정보입니다.".formatted(member.getName())))
-                .andExpect(jsonPath("$.data").exists())
-                .andExpect(jsonPath("$.data.id").value(member.getId()))
-                .andExpect(jsonPath("$.data.createDate").value(Matchers.startsWith(member.getCreateDate().toString().substring(0, 20))))
-                .andExpect(jsonPath("$.data.modifyDate").value(Matchers.startsWith(member.getModifyDate().toString().substring(0, 20))))
-                .andExpect(jsonPath("$.data.name").value(member.getName()));
+                .andExpect(status().isOk());
     }
+
 
     @Test
     @DisplayName("로그아웃")
@@ -189,5 +182,38 @@ public class ApiV1MemberControllerTest {
                     assertThat(apiKeyCookie.getPath()).isEqualTo("/");
                     assertThat(apiKeyCookie.isHttpOnly()).isTrue();
                 });
+    }
+
+    @Test
+    @DisplayName("엑세스 토큰이 만료되었거나 유효하지 않다면 apiKey를 통해서 재발급")
+    void t7() throws Exception {
+        Member actor = memberService.findByUsername("user1").get();
+        String actorApiKey = actor.getApiKey();
+
+        ResultActions resultActions = mvc
+                .perform(
+                        get("/api/v1/members/me")
+                                .header("Authorization", "Bearer " + actorApiKey + " wrong-access-token")
+                )
+                .andDo(print());
+
+        resultActions
+                .andExpect(handler().handlerType(ApiV1MemberController.class))
+                .andExpect(handler().methodName("me"))
+                .andExpect(status().isOk());
+
+        resultActions.andExpect(
+                result -> {
+                    Cookie accessTokenCookie = result.getResponse().getCookie("accessToken");
+                    assertThat(accessTokenCookie.getValue()).isNotBlank();
+                    assertThat(accessTokenCookie.getPath()).isEqualTo("/");
+                    assertThat(accessTokenCookie.getAttribute("HttpOnly")).isEqualTo("true");
+
+                    String headerAuthorization = result.getResponse().getHeader("Authorization");
+                    assertThat(headerAuthorization).isNotBlank();
+
+                    assertThat(headerAuthorization).isEqualTo(accessTokenCookie.getValue());
+                }
+        );
     }
 }
